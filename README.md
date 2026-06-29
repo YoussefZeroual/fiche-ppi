@@ -71,24 +71,30 @@ fiche-ppi-gui
 ### Ligne de commande
 
 ```bash
-python -m fiche_ppi.fiche_ppi fichier_oral.xlsx fichier_ecrit.xlsx -o fiche.xlsx
+fiche-ppi [-h] [-o OUTPUT] [--batch DOSSIER] [file_oral] [file_ecrit]
+
+Génère une fiche PPI consolidée à partir de deux fichiers Excel.
+
+positional arguments:
+  file_oral             Fichier Excel oral (.xlsx)
+  file_ecrit            Fichier Excel écrit (.xlsx)
+
+options:
+  -h, --help            show this help message and exit
+  -o OUTPUT, --output OUTPUT
+                        Fichier de sortie (mode simple ; défaut : <stem>_fiche.xlsx).
+  --batch DOSSIER       Traite toutes les paires *_Or.xlsx / *_Ph.xlsx du dossier.
+
 ```
 
 ## 📁 Structure des fichiers d'entrée
 
-Les fichiers Excel doivent contenir les colonnes suivantes (issues de l'export Lexicoscope) :
-
-- `sentId`, `left`, `node`, `right`, `author`, `collection`
-- `corpusId`, `pubdate`, `publisher`, `pubplace`, `puburl`
-- `source_language`, `sourcefilename`, `sub_genre`, `title`
-- `type`, `wordsnumber`, `year`
-
-et les colonnes d'annotation PPI :
+Les fichiers Excel doivent contenir les colonnes suivantes :
 
 - `Lemme`, `Forme PPI`, `Acception`, `Type de phrase`
 - `Modalité d'énonciation`, `Expansion`, `Modifieurs`
 - `Cooccurrents`, `Fonction globale`, `Fonctions spécifiques`
-- `milieu`, `secteur`, `Remarques`
+- `milieu`, `secteur`, `Remarques`,`node`
 
 ## Génération des colonnes de la fiche PPI
 
@@ -111,6 +117,18 @@ et les colonnes d'annotation PPI :
 | **Fe_4a Cooccurrents privilégiés** | Pour l'oral, l'écrit et le combiné :<br>- Parse la colonne `Cooccurrents`<br>- Sépare les éléments antéposés (a) et postposés (p)<br>- Compte les fréquences avec `Counter()`<br>- Calcule les pourcentages d'antéposés/postposés<br>- Formate : `Oral :\n\t- Cooccurrents antéposés (X%) : ...\n\t- Cooccurrents postposés (Y%) : ...` |
 | **Fe_4b Modifieurs de la PPI** | Joint les valeurs uniques de la colonne `Modifieurs` |
 | **Fe_9a Remarques** | Joint les valeurs uniques de la colonne `Remarques` |
+
+## Normalisation des données d'entrée
+
+L'outil procède à une normalisation de certaines valeurs afin d'obtenir des calculs corrects, ex. ante:mais--> mais (a); post:mais --> mais (p)
+Un minimum de normalisation est toutefois attendu.
+
+## Contrôle d'intégrité
+
+L'outil affiche des avertissements lorsque des lignes vides sont détectées:
+ex. 
+	[warn] [Oral] Portée (33) ≠ Position (34) — ligne(s) incomplète(s)
+	[warn] [Écrit] Portée (44) ≠ Position (43) — ligne(s) incomplète(s)
 
 ---
 

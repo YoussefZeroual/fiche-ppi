@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fiche-ppi"
-version = "0.1.0"
+version = "0.1.2.1"
 description = "Generate PPI sheets from Excel templates"
 readme = "README.md"
 authors = [{name = "Your Name", email = "you@example.com"}]
