@@ -1,3 +1,4 @@
+README.md
 pyproject.toml
 fiche_ppi/__init__.py
 fiche_ppi/fiche_ppi.py

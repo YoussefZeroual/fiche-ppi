@@ -24,6 +24,7 @@ dependencies = [
 
 [project.scripts]
 fiche-ppi-gui = "fiche_ppi.gui:main"
+fiche-ppi = "fiche_ppi.fiche_ppi:main"
 
 [project.urls]
 Homepage = "https://github.com/yourusername/fiche-ppi"

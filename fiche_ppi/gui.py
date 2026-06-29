@@ -6,14 +6,19 @@ Usage: python gui_fiche_ppi.py
 
 import os
 import re
-import sys
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 import pandas as pd
 
-from .fiche_ppi import build_fiche, stringify
+from .fiche_ppi import (
+    build_fiche,
+    derive_output,
+    find_pairs,
+    generate_one,
+    stringify,
+)
 from .format_excel import format_ppi_bold
 
 
@@ -31,57 +36,6 @@ BORDER    = "#3a3a55"
 FONT_MONO = ("Consolas", 10)
 FONT_UI   = ("Segoe UI", 10)
 FONT_H    = ("Segoe UI", 12, "bold")
-
-
-# ── Utilitaires ────────────────────────────────────────────────────────────────
-
-def derive_output(input_path: str) -> str:
-    """
-    /data/à bientôt_Or.xlsx  →  /data/à bientôt_fiche.xlsx
-    /data/à bientôt_Ph.xlsx  →  /data/à bientôt_fiche.xlsx
-    """
-    dirpath  = os.path.dirname(input_path)
-    basename = os.path.splitext(os.path.basename(input_path))[0]
-    stem     = re.sub(r'[_\s]*(Or|Ph)$', '', basename, flags=re.IGNORECASE).strip()
-    filename = f"{stem}_fiche.xlsx"
-    return os.path.join(dirpath, filename) if dirpath else filename
-
-
-def find_pairs(folder: str) -> list[tuple[str, str]]:
-    """
-    Cherche tous les *_Or.xlsx dans le dossier et tente de trouver
-    la contrepartie *_Ph.xlsx (insensible à la casse).
-    Retourne une liste de tuples (oral_path, ecrit_path).
-    """
-    pairs = []
-    for fname in sorted(os.listdir(folder)):
-        if re.search(r'_Or\.xlsx$', fname, re.IGNORECASE):
-            stem = re.sub(r'[_\s]*Or\.xlsx$', '', fname, flags=re.IGNORECASE).strip()
-            # Chercher la contrepartie Ph
-            ph_name = None
-            for candidate in os.listdir(folder):
-                if re.search(r'[_\s]*Ph\.xlsx$', candidate, re.IGNORECASE):
-                    cand_stem = re.sub(r'[_\s]*Ph\.xlsx$', '', candidate, flags=re.IGNORECASE).strip()
-                    if cand_stem.lower() == stem.lower():
-                        ph_name = candidate
-                        break
-            if ph_name:
-                pairs.append((
-                    os.path.join(folder, fname),
-                    os.path.join(folder, ph_name),
-                ))
-    return pairs
-
-
-def generate_one(oral: str, ecrit: str) -> str:
-    """Génère une fiche pour une paire et retourne le chemin de sortie."""
-    df_oral     = stringify(pd.read_excel(oral))
-    df_ecrit    = stringify(pd.read_excel(ecrit))
-    df_combined = pd.concat([df_oral, df_ecrit], ignore_index=True)
-    df_fiche    = build_fiche(df_oral, df_ecrit, df_combined)
-    output      = derive_output(oral)
-    format_ppi_bold(df_fiche, output)
-    return output
 
 
 # ── Widget helpers ─────────────────────────────────────────────────────────────
@@ -352,7 +306,9 @@ class FichePPIApp(tk.Tk):
 
     def _worker_simple(self, oral, ecrit, output):
         try:
-            out = generate_one(oral, ecrit)
+            out, warnings = generate_one(oral, ecrit)
+            for w in warnings:
+                self.after(0, self._log, w, "err")
             self.after(0, self._unlock)
             self.after(0, self._log, f"✓ {out}", "ok")
             self.after(0, messagebox.showinfo, "Succès", f"Fiche exportée :\n{out}")
@@ -378,7 +334,9 @@ class FichePPIApp(tk.Tk):
         for oral, ecrit in self._pairs:
             name = os.path.basename(oral)
             try:
-                out = generate_one(oral, ecrit)
+                out, warnings = generate_one(oral, ecrit)
+                for w in warnings:
+                    self.after(0, self._log, w, "err")
                 ok += 1
                 self.after(0, self._log, f"  ✓ {os.path.basename(out)}", "ok")
             except Exception as e:
@@ -392,8 +350,6 @@ class FichePPIApp(tk.Tk):
         self.after(0, self._log, summary, "ok" if not errors else "err")
         self.after(0, messagebox.showinfo, "Batch terminé", summary)
 
-
-# ── Entry point ────────────────────────────────────────────────────────────────
 
 # ── Entry point ────────────────────────────────────────────────────────────────
 

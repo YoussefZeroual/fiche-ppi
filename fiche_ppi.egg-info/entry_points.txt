@@ -1,2 +1,3 @@
 [console_scripts]
+fiche-ppi = fiche_ppi.fiche_ppi:main
 fiche-ppi-gui = fiche_ppi.gui:main
