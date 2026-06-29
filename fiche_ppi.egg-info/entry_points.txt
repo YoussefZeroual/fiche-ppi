@@ -1,0 +1,2 @@
+[console_scripts]
+fiche-ppi-gui = fiche_ppi.gui:main

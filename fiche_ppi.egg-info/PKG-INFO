@@ -1,0 +1,17 @@
+Metadata-Version: 2.4
+Name: fiche-ppi
+Version: 0.1.0
+Summary: Generate PPI sheets from Excel templates
+Author-email: Your Name <you@example.com>
+License: MIT
+Project-URL: Homepage, https://github.com/yourusername/fiche-ppi
+Project-URL: Bug-tracker, https://github.com/yourusername/fiche-ppi/issues
+Classifier: Programming Language :: Python :: 3
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+Requires-Dist: pandas>=1.5.0
+Requires-Dist: numpy>=1.24.0
+Requires-Dist: requests>=2.28.0
+Requires-Dist: beautifulsoup4>=4.12.0
