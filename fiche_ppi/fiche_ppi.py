@@ -28,6 +28,90 @@ from bs4 import BeautifulSoup
 from .format_excel import format_ppi_bold
 
 
+# ── Column normalisation ───────────────────────────────────────────────────────
+
+COL_ALIASES: dict[str, str] = {
+    # Forme PPI
+    "forme ppi":                                    "Forme PPI",
+    "forme":                                        "Forme PPI",
+    "ppi":                                          "Forme PPI",
+    # Lemme
+    "lemme":                                        "Lemme",
+    # Type de phrase
+    "type structure":                               "Type de phrase",
+    "type de phrase":                               "Type de phrase",
+    "type de phrase  (clausative/parenthétique)":   "Type de phrase",
+    "clausative/parenthétique":                     "Type de phrase",
+    "type":                                         "Type de phrase",
+    # Acception
+    "acception":                                    "Acception",
+    # Fonction globale
+    "fonction globale":                             "Fonction globale",
+    "fonction générale":                            "Fonction globale",
+    # Fonctions spécifiques
+    "fonction spécifique":                          "Fonctions spécifiques",
+    "fonctions spécifiques":                        "Fonctions spécifiques",
+    # Expansion
+    "expansion":                                    "Expansion",
+    # Position
+    "place dans tour de parole":                    "Position",
+    "position":                                     "Position",
+    # Cooccurrents (trailing space variant common in source files)
+    "cooccurrents":                                 "Cooccurrents",
+    "cooccurrents ":                                "Cooccurrents",
+    # Déclenchement
+    "déclenchement":                                "Déclenchement",
+    # Modalité d'énonciation
+    "modalité dénonciation":                        "Modalité d'énonciation",
+    "modalité d'énonciation":                       "Modalité d'énonciation",
+    "modalité":                                     "Modalité d'énonciation",
+    # Modifieurs
+    "modifieurs":                                   "Modifieurs",
+    "modifieur":                                    "Modifieurs",
+    # Portée (pandas auto-suffixes duplicate cols as .1, capital or lower)
+    "portée":                                       "Portée",
+    "portée.1":                                     "Portée",
+    # Remarques (various typos found in source files)
+    "remarques":                                    "Remarques",
+    "remarques deiverses":                          "Remarques",
+    "remarques diverses":                           "Remarques",
+    # Propriétés syntaxiques (not used by script, aliased for consistency)
+    "propriétés syntaxiques":                       "Propriétés syntaxiques",
+    "propriété syntaxique":                         "Propriétés syntaxiques",
+}
+
+
+def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Rename input columns to the canonical names expected by the script.
+    Lookup is case-insensitive and strips surrounding whitespace.
+    When two source columns map to the same canonical name (e.g. "portée" and
+    "portée.1" → "Portée"), the first non-empty value per row wins and the
+    duplicate column is dropped.
+    """
+    mapping = {
+        col: COL_ALIASES[col.strip().lower()]
+        for col in df.columns
+        if col.strip().lower() in COL_ALIASES
+    }
+    df = df.rename(columns=mapping)
+
+    # Resolve duplicate canonical column names
+    seen: dict[str, str] = {}
+    cols_to_drop = []
+    for col in df.columns:
+        if col in seen:
+            df[seen[col]] = df[seen[col]].where(df[seen[col]] != "", df[col])
+            cols_to_drop.append(col)
+        else:
+            seen[col] = col
+
+    if cols_to_drop:
+        df = df.drop(columns=cols_to_drop)
+
+    return df.reset_index(drop=True)
+
+
 # ── CLI ────────────────────────────────────────────────────────────────────────
 
 def parse_args() -> argparse.Namespace:
@@ -55,46 +139,64 @@ def parse_args() -> argparse.Namespace:
 # ── Utilitaires partagés (réutilisés par gui.py) ──────────────────────────────
 
 def derive_output(input_path: str) -> str:
-    """
-    /data/à bientôt_Or.xlsx  →  /data/à bientôt_fiche.xlsx
-    /data/à bientôt_Ph.xlsx  →  /data/à bientôt_fiche.xlsx
-    """
     dirpath  = os.path.dirname(input_path)
     basename = os.path.splitext(os.path.basename(input_path))[0]
-    stem     = re.sub(r'[_\s]*(Or|Ph)$', '', basename, flags=re.IGNORECASE).strip()
+    stem     = re.sub(r'[_\s]*(Or|Ph)[_\s]*grille[_\s]*$', '', basename, flags=re.IGNORECASE).strip()
+    stem     = re.sub(r'[_\s]*(Or|Ph)$', '', stem, flags=re.IGNORECASE).strip()
     filename = f"{stem}_fiche.xlsx"
     return os.path.join(dirpath, filename) if dirpath else filename
 
-
 def find_pairs(folder: str) -> list[tuple[str, str]]:
-    """
-    Cherche tous les *_Or.xlsx dans le dossier et tente de trouver
-    la contrepartie *_Ph.xlsx (insensible à la casse).
-    Retourne une liste de tuples (oral_path, ecrit_path).
-    """
+    def norm(s):
+        return re.sub(r'\s+', ' ', re.sub(r'[''`´]', "'", s)).strip().lower()
+
     pairs = []
-    for fname in sorted(os.listdir(folder)):
-        if re.search(r'_Or\.xlsx$', fname, re.IGNORECASE):
-            stem = re.sub(r'[_\s]*Or\.xlsx$', '', fname, flags=re.IGNORECASE).strip()
-            ph_name = None
-            for candidate in os.listdir(folder):
-                if re.search(r'[_\s]*Ph\.xlsx$', candidate, re.IGNORECASE):
-                    cand_stem = re.sub(r'[_\s]*Ph\.xlsx$', '', candidate,
-                                       flags=re.IGNORECASE).strip()
-                    if cand_stem.lower() == stem.lower():
-                        ph_name = candidate
-                        break
-            if ph_name:
-                pairs.append((
-                    os.path.join(folder, fname),
-                    os.path.join(folder, ph_name),
-                ))
+    all_files = os.listdir(folder)
+    for fname in sorted(all_files):
+        if fname.lower().endswith('_fiche.xlsx'):
+            continue
+        if not re.search(r'_Or.*?.xls.*?$', fname, re.IGNORECASE):
+            continue
+        stem = norm(re.sub(r'_Or.*?\.xls.*?$', '', fname, flags=re.IGNORECASE))
+        print(stem)
+        ph_name = None
+        for candidate in all_files:
+            if candidate.lower().endswith('_fiche.xlsx'):
+                continue
+            if re.search(r'_Ph.*?.xls.*?$', candidate, re.IGNORECASE):
+                cand_stem = norm(re.sub(r'_Ph.*?\.xls.*?$', '', candidate, flags=re.IGNORECASE))
+                if cand_stem == stem:
+                    ph_name = candidate
+                    break
+        if ph_name:
+            pairs.append((
+                os.path.join(folder, fname),
+                os.path.join(folder, ph_name),
+            ))
     return pairs
 
 
+def compute_variantes_formelles(df: pd.DataFrame) -> list[str]:
+    if "node" not in df.columns:
+        return []
+    modifieurs = [m for m in _get(df, "Modifieurs") if isinstance(m, str) and m.strip()]
+    modifier_tokens = " ".join(modifieurs).lower().split()
+    nodes = df["node"].str.replace(" -", "-", regex=False)
+    variantes = nodes.apply(lambda x: remove_modifier(modifier_tokens, x))
+    variantes = clean_modifieurs(variantes.tolist())
+    return list(set(variantes))
+
+
+def _load(path: str) -> pd.DataFrame:
+    """Read, stringify, and normalize columns from an Excel file."""
+    df = pd.read_excel(path)
+    print(f"\n[debug] {os.path.basename(path)} columns: {list(df.columns)}", file=sys.stderr)
+    return normalize_columns(stringify(df))
+
+
 def generate_one(oral: str, ecrit: str) -> tuple[str, list[str]]:
-    df_oral     = stringify(pd.read_excel(oral))
-    df_ecrit    = stringify(pd.read_excel(ecrit))
+    df_oral  = _load(oral)
+    df_ecrit = _load(ecrit)
 
     warnings = check_integrity(df_oral, df_ecrit)
     for w in warnings:
@@ -105,6 +207,7 @@ def generate_one(oral: str, ecrit: str) -> tuple[str, list[str]]:
     output      = derive_output(oral)
     format_ppi_bold(df_fiche, output)
     return output, warnings
+
 
 def check_integrity(df_oral: pd.DataFrame, df_ecrit: pd.DataFrame) -> list[str]:
     warnings = []
@@ -130,6 +233,8 @@ def check_integrity(df_oral: pd.DataFrame, df_ecrit: pd.DataFrame) -> list[str]:
                 warnings.append(f"[{label}] Portée ({n_portee}) ≠ Position ({n_position}) — ligne(s) incomplète(s)")
 
     return warnings
+
+
 # ── Wiktionary ─────────────────────────────────────────────────────────────────
 
 def get_wiktionary_pronunciation(expression: str, lang: str = "fr") -> list[str]:
@@ -293,14 +398,13 @@ def get_interaction_stats(df: pd.DataFrame) -> str:
         counts = Counter(clean_list(series.str.lower().str.strip()))
         return ", ".join(f"{val} ({n})" for val, n in counts.most_common())
 
-    decl = fmt_counts(df["Déclenchement"])
-    port = fmt_counts(df["Portée"])
-    pos  = fmt_counts(df["Position"])
+    def fmt_col(col):
+        return fmt_counts(df[col]) if col in df.columns else "—"
 
     return (
-        f"\t- <bold>Déclenchement</bold> : {decl}\n"
-        f"\t- <bold>Portée</bold>        : {port}\n"
-        f"\t- <bold>Position</bold>      : {pos}\n"
+        f"\t- <bold>Déclenchement</bold> : {fmt_col('Déclenchement')}\n"
+        f"\t- <bold>Portée</bold>        : {fmt_col('Portée')}\n"
+        f"\t- <bold>Position</bold>      : {fmt_col('Position')}\n"
     )
 
 
@@ -337,6 +441,13 @@ FICHE_COLS = [
     "Fe_10a Noms des rédacteurs",
     "Fe_10b Date de mise à jour",
 ]
+
+
+def _get(df: pd.DataFrame, col: str, fallback: str = "") -> "pd.Series":
+    """Return df[col] if it exists, else a Series of fallback values."""
+    if col in df.columns:
+        return df[col]
+    return pd.Series([fallback] * len(df), index=df.index)
 
 
 def build_fiche(
@@ -379,26 +490,29 @@ def build_fiche(
         + "<bold>Les deux modes combinés</bold> :\n" + stats_combined
     )
 
+    # Fe_1a: prefer "Forme PPI", fall back to "Lemme"
+    forme_ppi_col = "Forme PPI" if "Forme PPI" in df_combined.columns else "Lemme"
+
     # Remplissage
     df_fiche = pd.DataFrame(columns=FICHE_COLS, index=[0])
 
-    df_fiche["Fe_1a PPI"]                                       = df_combined["Forme PPI"].values[0]
-    df_fiche["Fe_1b Acception"]                                 = join_unique(df_combined["Acception"])
+    df_fiche["Fe_1a PPI"]                                       = df_combined[forme_ppi_col].values[0]
+    df_fiche["Fe_1b Acception"]                                 = join_unique(_get(df_combined, "Acception"))
     df_fiche["Fe_1c Variantes formelles"]                       = variantes_str
     df_fiche["Fe_1e Prononciation"]                             = prononciation
-    df_fiche["Fe_2a Statut syntaxique phrase"]                  = join_unique(df_combined["Type de phrase"])
-    df_fiche["Fe_2c Modalité de phrase"]                        = join_unique(df_combined["Modalité d'énonciation"])
-    df_fiche["Fe_2e Expansion éventuelle"]                      = join_unique(df_combined["Expansion"])
-    df_fiche["Fe_3a Fonction globale"]                          = join_unique(df_combined["Fonction globale"])
-    df_fiche["Fe_3b Fonctions spécifiques"]                     = join_unique(df_combined["Fonctions spécifiques"])
-    df_fiche["Fe_3c Codes Fonction globale"]                    = join_unique(df_combined["Fonction globale"])
-    df_fiche["Fe_3d Codes Fonctions spécifiques"]               = join_unique(df_combined["Fonctions spécifiques"])
+    df_fiche["Fe_2a Statut syntaxique phrase"]                  = join_unique(_get(df_combined, "Type de phrase"))
+    df_fiche["Fe_2c Modalité de phrase"]                        = join_unique(_get(df_combined, "Modalité d'énonciation"))
+    df_fiche["Fe_2e Expansion éventuelle"]                      = join_unique(_get(df_combined, "Expansion"))
+    df_fiche["Fe_3a Fonction globale"]                          = join_unique(_get(df_combined, "Fonction globale"))
+    df_fiche["Fe_3b Fonctions spécifiques"]                     = join_unique(_get(df_combined, "Fonctions spécifiques"))
+    df_fiche["Fe_3c Codes Fonction globale"]                    = join_unique(_get(df_combined, "Fonction globale"))
+    df_fiche["Fe_3d Codes Fonctions spécifiques"]               = join_unique(_get(df_combined, "Fonctions spécifiques"))
     df_fiche["Fe_3f Structure interactionnelle"]                = stats_str
-    df_fiche["Fe_3g Contexte spécifique"]                       = join_unique(df_combined["milieu"])
-    df_fiche["Fe_3h Modalité écrite et orale"]                  = join_unique(df_combined["secteur"])
+    df_fiche["Fe_3g Contexte spécifique"]                       = join_unique(_get(df_combined, "milieu"))
+    df_fiche["Fe_3h Modalité écrite et orale"]                  = join_unique(_get(df_combined, "secteur"))
     df_fiche["Fe_4a Cooccurrents privilégiés communs à la PPI"] = cooc_str
-    df_fiche["Fe_4b Modifieurs de la PPI"]                      = join_unique(df_combined["Modifieurs"])
-    df_fiche["Fe_9a Remarques"]                                 = join_unique(df_combined["Remarques"])
+    df_fiche["Fe_4b Modifieurs de la PPI"]                      = join_unique(_get(df_combined, "Modifieurs"))
+    df_fiche["Fe_9a Remarques"]                                 = join_unique(_get(df_combined, "Remarques"))
 
     # Pivot
     df_fiche = df_fiche.T.reset_index()
@@ -439,8 +553,8 @@ def main():
         )
         sys.exit(1)
 
-    df_oral     = stringify(pd.read_excel(args.file_oral))
-    df_ecrit    = stringify(pd.read_excel(args.file_ecrit))
+    df_oral     = _load(args.file_oral)
+    df_ecrit    = _load(args.file_ecrit)
     df_combined = pd.concat([df_oral, df_ecrit], ignore_index=True)
     df_fiche    = build_fiche(df_oral, df_ecrit, df_combined)
     output      = args.output or derive_output(args.file_oral)

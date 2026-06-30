@@ -264,9 +264,7 @@ class FichePPIApp(tk.Tk):
             self.pairs_list.insert("end", "  Aucune paire trouvée.")
             return
         for oral, ecrit in self._pairs:
-            label = os.path.basename(oral).replace(
-                re.search(r'(_Or\.xlsx)$', os.path.basename(oral),
-                          re.IGNORECASE).group(1), "")
+            label = re.sub(r'_Or.*$', '', os.path.basename(oral), flags=re.IGNORECASE)
             self.pairs_list.insert("end", f"  {label}")
         self._log(f"{len(self._pairs)} paire(s) détectée(s) dans {folder}")
 
